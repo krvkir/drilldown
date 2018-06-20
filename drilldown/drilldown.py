@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import logging
+from traceback import format_exc
 import xlsxwriter
 from pandas import isnull, notnull
 
@@ -53,9 +55,16 @@ class Table:
     def groups(self):
         return self._groups
 
-    def __init__(self, frame, groups):
+    # Visual properties.
+    @property
+    def column_widths(self):
+        return self._column_widths
+
+
+    def __init__(self, frame, groups=None, column_widths=None):
         self._frame = frame
         self._groups = groups
+        self._column_widths = column_widths
 
 
 class Page:
@@ -81,6 +90,9 @@ class Page:
     @property
     def table(self):
         return self._table
+
+    def __repr__(self):
+        return f"Page(name={self.name})"
 
     def __init__(self, name, header, table, navbar=None, parent=None):
         self._name = name
@@ -117,37 +129,66 @@ class Cell:
     def color(self):
         return self._get_color()
 
+    @property
+    def link(self):
+        return self._get_link()
+
     # def _get_value(self):
     #     raise NotImplemented()
 
     def _get_string(self):
+        # User must implement this method to use cell.
         raise NotImplemented()
 
     def _get_color(self):
-        raise NotImplemented()
+        # By default cell has no color. User may override this.
+        return None
+
+    def _get_link(self):
+        # By default cell has no link. User may override this.
+        return None
 
 
 class Renderer:
     """
     Renderer doesn't calculate anything. It only renders, paints and does other formatting.
     """
-    def __init__(self, filename, formats, column_widths):
+    @property
+    def pages(self):
+        return self._pages
+
+    def __init__(self, filename, formats):
         self._filename = filename
-        self._column_widths = column_widths
         assert {'title', 'description',
                 'table_index_column_names', 'table_column_names',
-                'table_index_cells', 'table_cells'} <= set(formats.keys())
+                'table_index_cells', 'table_cells',
+                'link_mixin'} <= set(formats.keys())
         self._formats = formats
+        self._pages = []
 
-    def render_pages(self, pages):
+    def add_page(self, page):
+        self._pages.append(page)
+
+    def render_pages(self, skip_errors=False):
+        """
+        skip_errors: if True, only report errors but continue execution.
+        """
         # Open the workbook.
         book = xlsxwriter.Workbook(self._filename)
         # Initialize formats in this book.
         formats = {name: book.add_format(props)
                    for name, props in self._formats.items() }
         # Put pages on sheets of the book.
-        for page in pages:
-            self._render_page(page, book, formats)
+        for page in self.pages:
+            try:
+                self._render_page(page, book, formats)
+            except:
+                if skip_errors:
+                    exc_str = format_exc()
+                    logging.error(f'Failed to process page {page}:\n{exc_str}')
+                    continue
+                raise
+
         book.close()
 
     def _render_page(self, page, book, formats):
@@ -161,46 +202,65 @@ class Renderer:
 
         sheet.write(0, 0, page.header.title, formats['title'])
         sheet.write(1, 0, page.header.description, formats['description'])
+        if page.parent is not None:
+            sheet.write_url(2, 0, f"internal:'{page.parent.name}'!A1", string="Go back")
 
         sheet.freeze_panes(header_shift, index_shift)
 
         # Set column widths.
-        for column_num, column_width in enumerate(self._column_widths):
-            sheet.set_column(column_num, column_num, column_width)
+        if page.table.column_widths is not None:
+            for column_num, column_width in enumerate(page.table.column_widths):
+                sheet.set_column(column_num, column_num, column_width)
 
         # Write table header:
         # index part
         for col_num, index_name in enumerate(frame.index.names):
             sheet.write(header_shift-1,
                         col_num,
-                        index_name,
+                        str(index_name),
                         formats['table_index_column_names'])
         # columns part
         for col_num, column_name in enumerate(frame.columns):
             sheet.write(header_shift-1,
                         index_shift+col_num,
-                        column_name,
+                        str(column_name),
                         formats['table_column_names'])
 
         # Put data on the page.
         # Write rows:
         for row_num, (row_index, row_values) in enumerate(frame.iterrows()):
             # write indices
-            for col_num, index_value in enumerate(row_index):
-                sheet.write(header_shift+row_num,
-                            col_num,
-                            index_value,
-                            formats['table_index_cells'])
+            for col_num, index_cell in enumerate(row_index):
+                self._write_cell(header_shift+row_num,
+                                 col_num,
+                                 index_cell,
+                                 sheet,
+                                 book,
+                                 self._formats['table_index_cells'])
             # write cells
             for col_num, cell in enumerate(row_values):
-                if isnull(cell):
-                    continue
-                # Add cell color to the formatting.
-                cell_format = self._formats['table_cells'].copy()
-                if hasattr(cell, 'color') and notnull(cell.color):
-                    cell_format.update({'bg_color': cell.color})
-                # Write cell to the sheet.
-                sheet.write(header_shift+row_num,
-                            index_shift+col_num,
-                            str(cell),
-                            book.add_format(cell_format))
+                self._write_cell(header_shift+row_num,
+                                 index_shift+col_num,
+                                 cell,
+                                 sheet,
+                                 book,
+                                 self._formats['table_cells'])
+
+    def _write_cell(self, row_num, col_num, cell, sheet, book, default_format):
+        # Skip empty cells.
+        if isnull(cell):
+            return
+        # Assemble cell format:
+        cell_format = default_format.copy()
+        # color:
+        if hasattr(cell, 'color') and notnull(cell.color):
+            cell_format.update({'bg_color': cell.color})
+        # Write cell to the sheet.
+        if hasattr(cell, 'link') and cell.link is not None:
+            link = f"internal:'{cell.link}'!A1"
+            cell_format.update(self._formats['link_mixin'])
+            cell_format = book.add_format(cell_format)
+            sheet.write_url(row_num, col_num, link, cell_format, str(cell))
+        else:
+            cell_format = book.add_format(cell_format)
+            sheet.write(row_num, col_num, str(cell), cell_format)
