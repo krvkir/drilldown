@@ -53,19 +53,24 @@ class Table:
     # Groups are folded using outlines (with total row).
     # Formatting visually separates groups between each other.
     @property
-    def groups(self):
-        return self._groups
+    def group_level(self):
+        return self._group_level
 
     # Visual properties.
     @property
     def column_widths(self):
         return self._column_widths
 
+    @property
+    def hidden_columns(self):
+        return self._hidden_columns
 
-    def __init__(self, frame, groups=None, column_widths=None):
+    def __init__(self, frame, group_level=None, column_widths=None,
+                 hidden_columns=[]):
         self._frame = frame
-        self._groups = groups
+        self._group_level = group_level
         self._column_widths = column_widths
+        self._hidden_columns = hidden_columns
 
 
 class Page:
@@ -183,13 +188,14 @@ class Renderer:
     def pages(self):
         return self._pages
 
-    def __init__(self, filename, formats):
+    def __init__(self, filename, formats, config):
         self._filename = filename
         assert {'title', 'description',
                 'table_index_column_names', 'table_column_names',
                 'table_index_cells', 'table_cells',
                 'link_mixin'} <= set(formats.keys())
         self._formats = formats
+        self._config = config
         self._pages = []
 
     def add_page(self, page):
@@ -237,6 +243,9 @@ class Renderer:
         if page.table.column_widths is not None:
             for column_num, column_width in enumerate(page.table.column_widths):
                 sheet.set_column(column_num, column_num, column_width)
+        # Hide hidden columns.
+        for column_num in page.table.hidden_columns:
+            sheet.set_column(column_num, column_num, options={'hidden': True})
 
         # Write table header:
         # index part
@@ -255,11 +264,15 @@ class Renderer:
         # Initialize merged areas list for indices.
         merged_areas = [None] * len(frame.index.names)
 
+        group_level = (page.table.group_level
+                       if page.table.group_level is not None
+                       else -1)
+
         # Put data on the page.
         # Write rows:
         for row_num, (row_index, row_values) in enumerate(frame.iterrows()):
             # Write indices:
-            no_values_have_changed = True
+            value_have_changed_on_level = None
             for col_num, index_cell in enumerate(row_index):
                 # Initialize merged areas on first row.
                 if row_num == 0:
@@ -268,26 +281,39 @@ class Renderer:
                 # If cell value is equal to one stored in MergedArea for this column,
                 # and no cells have changed on prevous columns,
                 # then just extend MergedArea for this column by one row.
-                if no_values_have_changed and merged_areas[col_num].cell_is_equal_to(index_cell):
+                if (value_have_changed_on_level is None
+                        and merged_areas[col_num].cell_is_equal_to(index_cell)):
                     merged_areas[col_num].extend(1, 0)
                     continue
                 # Otherwise, write the current MergedArea and create new one.
-                sheet.merge_range(*(merged_areas[col_num].coords), "")
+                if value_have_changed_on_level is None:
+                    value_have_changed_on_level = col_num
+                # if group have closed, apply a special style.
+                cell_format = self._formats['table_index_cells'].copy()
+                if (value_have_changed_on_level is not None
+                        and value_have_changed_on_level <= group_level):
+                    cell_format.update({'bottom': self._config['group_border_style']})
+                sheet.merge_range(*(merged_areas[col_num].coords), "", book.add_format(cell_format))
                 self._write_cell(*(merged_areas[col_num].coords[:2]),
                                  merged_areas[col_num].cell,
                                  sheet,
                                  book,
-                                 self._formats['table_index_cells'])
+                                 cell_format)
                 merged_areas[col_num] = MergedArea(header_shift+row_num, col_num, index_cell)
-                no_values_have_changed = False
+
             # Write cells:
             for col_num, cell in enumerate(row_values):
+                # if group on level 0 have closed, apply a special style.
+                cell_format = self._formats['table_cells'].copy()
+                if (value_have_changed_on_level is not None
+                        and value_have_changed_on_level <= group_level):
+                    cell_format.update({'top': self._config['group_border_style']})
                 self._write_cell(header_shift+row_num,
                                  index_shift+col_num,
                                  cell,
                                  sheet,
                                  book,
-                                 self._formats['table_cells'])
+                                 cell_format)
 
         # Flush final merged areas.
         for area in merged_areas:
@@ -298,9 +324,17 @@ class Renderer:
                              book,
                              self._formats['table_index_cells'])
 
+        # Draw bottom line to close the table.
+        for col_num in range(len(frame.index.names) + len(frame.columns)):
+            sheet.write(header_shift + row_num + 1,
+                        col_num,
+                        None,
+                        book.add_format({'top': self._config['group_border_style']}))
+
     def _write_cell(self, row_num, col_num, cell, sheet, book, default_format):
-        # Skip empty cells.
+        # For empty cells only apply the format to the cell.
         if isnull(cell):
+            sheet.write(row_num, col_num, None, book.add_format(default_format))
             return
         # Assemble cell format:
         cell_format = default_format.copy()
