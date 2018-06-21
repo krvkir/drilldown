@@ -4,4 +4,5 @@ __author__ = """Kirill Krasnoshchekov"""
 __email__ = 'krvkir@gmail.com'
 __version__ = '0.1.0'
 
-from .drilldown import Header, Navbar, Table, Page, Renderer, Cell
+from .drilldown import Header, Navbar, Table, Page, Cell
+from .renderer import Renderer
