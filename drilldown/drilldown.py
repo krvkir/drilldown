@@ -11,6 +11,7 @@ Presentation details should be avoided to allow writing
 to different output formats (i.e. a spreadsheet or a website).
 """
 
+
 class Header:
     # Title is short summary of what is on the page.
     @property
@@ -149,6 +150,31 @@ class Cell:
         return None
 
 
+class MergedArea:
+    def __init__(self, first_row, first_col, cell):
+        self._first_row = first_row
+        self._first_col = first_col
+        self._last_row = first_row
+        self._last_col = first_col
+        self._cell = cell
+
+    @property
+    def cell(self):
+        return self._cell
+
+    def extend(self, num_rows, num_cols):
+        self._last_row += num_rows
+        self._last_col += num_cols
+
+    @property
+    def coords(self):
+        return [self._first_row, self._first_col,
+                self._last_row, self._last_col]
+
+    def cell_is_equal_to(self, cell):
+        return str(self._cell) == str(cell)
+
+
 class Renderer:
     """
     Renderer doesn't calculate anything. It only renders, paints and does other formatting.
@@ -177,7 +203,7 @@ class Renderer:
         book = xlsxwriter.Workbook(self._filename)
         # Initialize formats in this book.
         formats = {name: book.add_format(props)
-                   for name, props in self._formats.items() }
+                   for name, props in self._formats.items()}
         # Put pages on sheets of the book.
         for page in self.pages:
             try:
@@ -226,18 +252,35 @@ class Renderer:
                         str(column_name),
                         formats['table_column_names'])
 
+        # Initialize merged areas list for indices.
+        merged_areas = [None] * len(frame.index.names)
+
         # Put data on the page.
         # Write rows:
         for row_num, (row_index, row_values) in enumerate(frame.iterrows()):
-            # write indices
+            # Write indices:
+            no_values_have_changed = True
             for col_num, index_cell in enumerate(row_index):
-                self._write_cell(header_shift+row_num,
-                                 col_num,
-                                 index_cell,
+                # Initialize merged areas on first row.
+                if row_num == 0:
+                    merged_areas[col_num] = MergedArea(header_shift, col_num, index_cell)
+                    continue
+                # If cell value is equal to one stored in MergedArea for this column,
+                # and no cells have changed on prevous columns,
+                # then just extend MergedArea for this column by one row.
+                if no_values_have_changed and merged_areas[col_num].cell_is_equal_to(index_cell):
+                    merged_areas[col_num].extend(1, 0)
+                    continue
+                # Otherwise, write the current MergedArea and create new one.
+                sheet.merge_range(*(merged_areas[col_num].coords), "")
+                self._write_cell(*(merged_areas[col_num].coords[:2]),
+                                 merged_areas[col_num].cell,
                                  sheet,
                                  book,
                                  self._formats['table_index_cells'])
-            # write cells
+                merged_areas[col_num] = MergedArea(header_shift+row_num, col_num, index_cell)
+                no_values_have_changed = False
+            # Write cells:
             for col_num, cell in enumerate(row_values):
                 self._write_cell(header_shift+row_num,
                                  index_shift+col_num,
@@ -245,6 +288,15 @@ class Renderer:
                                  sheet,
                                  book,
                                  self._formats['table_cells'])
+
+        # Flush final merged areas.
+        for area in merged_areas:
+            sheet.merge_range(*(area.coords), "")
+            self._write_cell(*(area.coords[:2]),
+                             area.cell,
+                             sheet,
+                             book,
+                             self._formats['table_index_cells'])
 
     def _write_cell(self, row_num, col_num, cell, sheet, book, default_format):
         # Skip empty cells.
