@@ -1,6 +1,6 @@
 #+TITLE: Drilldown
 
-`drilldown` writes navigable xlsx reports from pandas dataframes.
+~drilldown~ writes navigable xlsx reports from pandas dataframes.
 
 * Problem
 
@@ -18,10 +18,10 @@ And you don't want to invest much time in careful creation of a data cube for yo
 4. Create the renderer, provide it with a filename to save the document, and optionally with styles for table elements.
 5. Add pages to the renderer and render pages to the file.
 
-See notebooks in `examples/` folder for the details.
+See notebooks in ~examples/~ folder for the details.
 
-Data and page properties are separated from visual presentation. So it's possible to write your own renderer, e.g. to produce static website or one-page javascript app based on `D3.js`.
+Data and page properties are separated from visual presentation. So it's possible to write your own renderer, e.g. to produce static website or one-page javascript app based on ~D3.js~.
 
 * Dependencies
-- `pandas`
-- `xlsxwriter` to make xlsx book.
+- ~pandas~
+- ~xlsxwriter~ to make xlsx book.
