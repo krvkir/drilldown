@@ -158,3 +158,9 @@ class Cell:
 
     def __lt__(self, other):
         return str(self) < str(other)
+
+    def __eq__(self, other):
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return str(self).__hash__()
