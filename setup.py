@@ -20,7 +20,7 @@ setup(
     description="Generates xlsx reports with hierarchically organized sheets.",
     install_requires=requirements,
     license="GNU General Public License v3",
-    long_description=readme
+    long_description=readme,
     include_package_data=True,
     keywords='drilldown',
     name='drilldown',
