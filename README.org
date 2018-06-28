@@ -10,6 +10,10 @@ Also suppose you want complex logic in each table cell (e.g. you have a planned 
 
 And you don't want to invest much time in careful creation of a data cube for your data. Rather you need to quickly assemble fairly usable report.
 
+* Install
+
+=pip install git+https://github.com/krvkir/drilldown.git=
+
 * Usage
 
 1. Get the data.
