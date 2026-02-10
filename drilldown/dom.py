@@ -8,6 +8,15 @@ to different output formats (i.e. a spreadsheet or a website).
 """
 
 
+def coalesce(*objs):
+    """
+    Return the first non-None object among its arguments.
+    """
+    for obj in objs:
+        if obj is not None:
+            return obj
+
+
 class Header:
     # Title is short summary of what is on the page.
     @property
@@ -40,6 +49,13 @@ class Navbar:
         self._breadcrumbs = breadcrumbs
 
 
+class Chart:
+    def __init__(self, type=None, subtype=None, serii=[]):
+        self._type = type
+        self._subtype = subtype
+        self._serii = serii
+
+
 class Table:
     # Dataframe with `columns`, `index`, `values`.
     @property
@@ -61,12 +77,21 @@ class Table:
     def hidden_columns(self):
         return self._hidden_columns
 
-    def __init__(self, frame, group_level=None, column_widths=None,
-                 hidden_columns=[]):
+    def __init__(
+        self,
+        frame,
+        group_level=None,
+        column_widths=None,
+        hidden_columns=[],
+        autofilter=False,
+        charts=[],
+    ):
         self._frame = frame
         self._group_level = group_level
         self._column_widths = column_widths
         self._hidden_columns = hidden_columns
+        self._autofilter = autofilter
+        self._charts = charts
 
 
 class Page:
@@ -96,7 +121,14 @@ class Page:
     def __repr__(self):
         return f"Page(name={self.name})"
 
-    def __init__(self, name, header, table, navbar=None, parent=None):
+    def __init__(
+        self,
+        name,
+        header,
+        table,
+        navbar=None,
+        parent=None,
+    ):
         self._name = name
         self._parent = parent
         self._header = header
@@ -104,7 +136,7 @@ class Page:
         self._table = table
 
     def set_navbar(self, navbar):
-        """ Navbar can be set afterwards"""
+        """Navbar can be set afterwards"""
         self._navbar = navbar
 
 
@@ -128,6 +160,10 @@ class Cell:
         return self._get_string()
 
     @property
+    def value(self):
+        return self._get_value()
+
+    @property
     def color(self):
         return self._get_color()
 
@@ -141,6 +177,10 @@ class Cell:
     def _get_string(self):
         # User must implement this method to use cell.
         raise NotImplemented()
+
+    def _get_value(self):
+        # By default cell has no color. User may override this.
+        return self._value
 
     def _get_color(self):
         # By default cell has no color. User may override this.
@@ -164,3 +204,6 @@ class Cell:
 
     def __hash__(self):
         return str(self).__hash__()
+
+    def __init__(self, value):
+        self._value = value
