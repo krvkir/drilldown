@@ -353,20 +353,25 @@ class Renderer:
             )
 
         # Add an autofilter
-        if page.table._autofilter:
+        if page.table.autofilter:
             sheet.autofilter(
                 header_shift - 1, 0, header_shift + row_num + 1, col_num
             )
 
         # Add charts
         for i, spec in enumerate(page.table.charts):
-            print("adding a chart")
             chart = book.add_chart(
                 {"type": spec._type, "subtype": spec._subtype}
             )
-            for series in spec._serii:
-                chart.add_series({"values": series})
-            sheet.insert_chart(header_shift + row_num + 1, 0, chart)
+            for series in spec.y:
+                chart.add_series({"values": series, "categories": spec.x})
+            sheet.insert_chart(
+                header_shift + row_num + 3 + 20 * i, len(row_index), chart
+            )
+
+        # Add conditional formatting
+        for i, spec in enumerate(page.table.conditional_formatting):
+            sheet.conditional_format(*spec.range, spec.rules)
 
     def _write_cell(self, row_num, col_num, cell, sheet, book, default_format):
         # For empty cells only apply the format to the cell.
@@ -400,7 +405,13 @@ class Renderer:
             link = f"internal:'{cell.link}'!A1"
             format.update(self._formats["link_mixin"])
             format = book.add_format(format)
-            sheet.write_url(row_num, col_num, link, format, value)
+            sheet.write_url(
+                row_num,
+                col_num,
+                url=link,
+                cell_format=format,
+                string=str(value),
+            )
         elif isinstance(value, str) and value.startswith("="):
             format = book.add_format(format)
             sheet.write_formula(

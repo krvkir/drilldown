@@ -7,6 +7,8 @@ Presentation details should be avoided to allow writing
 to different output formats (i.e. a spreadsheet or a website).
 """
 
+from typing import List, Dict
+
 
 def coalesce(*objs):
     """
@@ -50,10 +52,32 @@ class Navbar:
 
 
 class Chart:
-    def __init__(self, type=None, subtype=None, serii=[]):
+    def __init__(self, x: str, y: List[str], type=None, subtype=None):
         self._type = type
         self._subtype = subtype
-        self._serii = serii
+        self._x = x
+        self._y = y
+
+    @property
+    def x(self):
+        return self._x
+
+    @property
+    def y(self):
+        return self._y
+
+
+class ConditionalFormatting:
+    def __init__(
+        self,
+        start_row: int,
+        start_col: int,
+        end_row: int,
+        end_col: int,
+        rules: Dict,
+    ):
+        self.range = (start_row, start_col, end_row, end_col)
+        self.rules = rules
 
 
 class Table:
@@ -77,6 +101,18 @@ class Table:
     def hidden_columns(self):
         return self._hidden_columns
 
+    @property
+    def charts(self):
+        return self._charts
+
+    @property
+    def autofilter(self):
+        return self._autofilter
+
+    @property
+    def conditional_formatting(self):
+        return self._conditional_formatting
+
     def __init__(
         self,
         frame,
@@ -85,6 +121,7 @@ class Table:
         hidden_columns=[],
         autofilter=False,
         charts=[],
+        conditional_formatting=[],
     ):
         self._frame = frame
         self._group_level = group_level
@@ -92,6 +129,7 @@ class Table:
         self._hidden_columns = hidden_columns
         self._autofilter = autofilter
         self._charts = charts
+        self._conditional_formatting = conditional_formatting
 
 
 class Page:
