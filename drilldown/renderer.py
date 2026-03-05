@@ -1,16 +1,24 @@
 # -*- coding: utf-8 -*-
-
 import logging
+from copy import copy
+from datetime import date, datetime
 from traceback import format_exc
-import xlsxwriter
-from datetime import datetime, date
+from typing import Any, Dict
 
 import pandas as pd
+import xlsxwriter
+from openpyxl.worksheet.worksheet import Worksheet
 from pandas import isnull, notnull
+from xlsxwriter import Workbook
 
-from .dom import Cell
+from .dom import Cell, Page, Table
 
-_default_formats = {
+_default_formats: Dict[str, Dict[str, Any]] = {
+    # Default
+    "table_cells": {
+        "font_size": 9,
+        "align": "center",
+    },
     # Page header
     "title": {
         "font_size": 24,
@@ -45,10 +53,6 @@ _default_formats = {
         "valign": "vcenter",
         "text_wrap": False,
         "bold": True,
-    },
-    "table_cells": {
-        "font_size": 9,
-        "align": "center",
     },
     # Mixins
     "link_mixin": {"font_color": "blue", "underline": True},
@@ -110,8 +114,10 @@ class Renderer:
         self._pages = []
 
         # Take default formats, update them with user settings.
-        self._formats = _default_formats
+        self._formats = copy(_default_formats)
         for format_name, format_styles in formats.items():
+            if format_name not in self._formats:
+                self._formats[format_name] = copy(_default_formats["table_cells"])
             self._formats[format_name].update(format_styles)
         assert {
             "title",
@@ -140,11 +146,10 @@ class Renderer:
         skip_errors: if True, only report errors but continue execution.
         """
         # Open the workbook.
-        book = xlsxwriter.Workbook(self._filename)
+        book: Workbook = Workbook(self._filename)
         # Initialize formats in this book.
         formats = {
-            name: book.add_format(props)
-            for name, props in self._formats.items()
+            name: book.add_format(props) for name, props in self._formats.items()
         }
         # Put pages on sheets of the book.
         for page in self.pages:
@@ -159,37 +164,50 @@ class Renderer:
 
         book.close()
 
-    def _render_page(self, page, book, formats):
+    def _render_page(self, page: Page, book: Workbook, formats):
         # Create a worksheet.
         sheet = book.add_worksheet(page.name)
 
         # Put header and navigation on the page.
-        frame = page.table.frame
+        table = page.table
+        frame = table.frame
         if not isinstance(frame.index, pd.MultiIndex):
             frame.index = pd.MultiIndex.from_arrays(
                 [frame.index.values], names=[frame.index.name]
             )
-        index_shift = len(frame.index.names)
+        index_shift = frame.index.nlevels
         header_shift = 4
 
         sheet.write(0, 0, page.header.title, formats["title"])
         sheet.write(1, 0, page.header.description, formats["description"])
         if page.parent is not None:
-            sheet.write_url(
-                2, 0, f"internal:'{page.parent.name}'!A1", string="Go back"
+            sheet.write_url(2, 0, f"internal:'{page.parent.name}'!A1", string="Go back")
+
+        sheet.freeze_panes(header_shift + frame.columns.nlevels - 1, index_shift)
+
+        # Hide hidden rows.
+        for row_num in page.table.hidden_rows:
+            sheet.set_row(row_num, row_num, options={"hidden": True})
+        for row_num in page.table.grouped_rows:
+            sheet.set_row(
+                row_num,
+                row_num,
+                options={
+                    "level": 1,
+                    "hidden": True,
+                },
             )
-
-        sheet.freeze_panes(header_shift, index_shift)
-
-        # Set column widths.
+        # Set column widths and hide/group if specified.
         if page.table.column_widths is not None:
-            for column_num, column_width in enumerate(
-                page.table.column_widths
-            ):
-                sheet.set_column(column_num, column_num, column_width)
-        # Hide hidden columns.
-        for column_num in page.table.hidden_columns:
-            sheet.set_column(column_num, column_num, options={"hidden": True})
+            for column_num, column_width in enumerate(page.table.column_widths):
+                column_opts = {}
+                if column_num in table.grouped_columns:
+                    column_opts.update({"level": 1, "hidden": True})
+                if column_num in table.hidden_columns:
+                    column_opts.update({"hidden": True})
+                sheet.set_column(
+                    column_num, column_num, column_width, options=column_opts
+                )
 
         # Write table header:
         # columns part
@@ -207,6 +225,7 @@ class Renderer:
                     merged_areas[row_num] = MergedArea(
                         header_shift + row_num - 1,
                         index_shift + col_num,
+                        # Apply renaming map
                         column_name,
                     )
                     continue
@@ -231,7 +250,9 @@ class Renderer:
                     merged_areas[row_num].cell,
                     sheet,
                     book,
+                    page,
                     cell_format,
+                    rename_map=table._columns_rename_map,
                 )
                 merged_areas[row_num] = MergedArea(
                     header_shift + row_num - 1,
@@ -242,7 +263,13 @@ class Renderer:
         for area in merged_areas:
             sheet.merge_range(*(area.coords), "")
             self._write_cell(
-                *(area.coords[:2]), area.cell, sheet, book, cell_format
+                *(area.coords[:2]),
+                area.cell,
+                sheet,
+                book,
+                page,
+                cell_format,
+                rename_map=table._columns_rename_map,
             )
         header_shift += n_column_levels - 1
 
@@ -259,9 +286,7 @@ class Renderer:
         merged_areas = [None] * len(frame.index.names)
 
         group_level = (
-            page.table.group_level
-            if page.table.group_level is not None
-            else -1
+            page.table.group_level if page.table.group_level is not None else -1
         )
 
         # Put data on the page.
@@ -273,7 +298,9 @@ class Renderer:
                 # Initialize merged areas on first row.
                 if row_num == 0:
                     merged_areas[col_num] = MergedArea(
-                        header_shift, col_num, index_cell
+                        header_shift,
+                        col_num,
+                        index_cell,
                     )
                     continue
                 # If cell value is equal to one stored in MergedArea for this column,
@@ -293,9 +320,7 @@ class Renderer:
                     value_have_changed_on_level is not None
                     and value_have_changed_on_level <= group_level
                 ):
-                    cell_format.update(
-                        {"bottom": self._config["group_border_style"]}
-                    )
+                    cell_format.update({"bottom": self._config["group_border_style"]})
                 sheet.merge_range(
                     *(merged_areas[col_num].coords),
                     "",
@@ -306,10 +331,14 @@ class Renderer:
                     merged_areas[col_num].cell,
                     sheet,
                     book,
+                    page,
                     cell_format,
+                    rename_map=table._index_rename_map,
                 )
                 merged_areas[col_num] = MergedArea(
-                    header_shift + row_num, col_num, index_cell
+                    header_shift + row_num,
+                    col_num,
+                    index_cell,
                 )
 
             # Write cells:
@@ -320,15 +349,14 @@ class Renderer:
                     value_have_changed_on_level is not None
                     and value_have_changed_on_level <= group_level
                 ):
-                    cell_format.update(
-                        {"top": self._config["group_border_style"]}
-                    )
+                    cell_format.update({"top": self._config["group_border_style"]})
                 self._write_cell(
                     header_shift + row_num,
                     index_shift + col_num,
                     cell,
                     sheet,
                     book,
+                    page,
                     cell_format,
                 )
 
@@ -340,7 +368,9 @@ class Renderer:
                 area.cell,
                 sheet,
                 book,
+                page,
                 self._formats["table_index_cells"],
+                rename_map=table._index_rename_map,
             )
 
         # Draw bottom line to close the table.
@@ -353,22 +383,48 @@ class Renderer:
             )
 
         # Add an autofilter
-        if page.table._autofilter:
-            sheet.autofilter(
-                header_shift - 1, 0, header_shift + row_num + 1, col_num
-            )
+        if page.table.autofilter:
+            sheet.autofilter(header_shift - 1, 0, header_shift + row_num + 1, col_num)
 
         # Add charts
         for i, spec in enumerate(page.table.charts):
-            print("adding a chart")
-            chart = book.add_chart(
-                {"type": spec._type, "subtype": spec._subtype}
+            chart = book.add_chart({"type": spec._type, "subtype": spec._subtype})
+            for series in spec.y:
+                if isinstance(series, str):
+                    series = {"values": series}
+                chart.add_series(
+                    {
+                        **series,
+                        "categories": spec.x,
+                    }
+                )
+            chart.set_x_axis(spec._x_spec)
+            chart.set_size(spec._size)
+            loc = (
+                spec._location.get("row", header_shift + row_num + 3 + 20 * i),
+                spec._location.get("column", 0),
             )
-            for series in spec._serii:
-                chart.add_series({"values": series})
-            sheet.insert_chart(header_shift + row_num + 1, 0, chart)
+            sheet.insert_chart(*loc, chart)
 
-    def _write_cell(self, row_num, col_num, cell, sheet, book, default_format):
+        # Add conditional formatting
+        for i, spec in enumerate(page.table.conditional_formatting):
+            # if "format" in spec.rules and isinstance(spec.rules.format, str):
+            #     spec.rules["format"] = book.add_format(
+            #         self._formats[spec.rules["format"]]
+            #     )
+            sheet.conditional_format(*spec.range, spec.rules)
+
+    def _write_cell(
+        self,
+        row_num,
+        col_num,
+        cell: Cell,
+        sheet: Worksheet,
+        book: Workbook,
+        page: Page,
+        default_format,
+        rename_map: Dict[str, str] = {},
+    ):
         # For empty cells only apply the format to the cell.
         if isnull(cell):
             value = None
@@ -387,6 +443,7 @@ class Renderer:
         elif isinstance(value, float):
             format.update(self._formats["float_mixin"])
         elif isinstance(value, str):
+            value = rename_map.get(value, value)
             if value.startswith("="):
                 format.update(self._formats["float_mixin"])
             else:
@@ -400,12 +457,16 @@ class Renderer:
             link = f"internal:'{cell.link}'!A1"
             format.update(self._formats["link_mixin"])
             format = book.add_format(format)
-            sheet.write_url(row_num, col_num, link, format, value)
+            sheet.write_url(
+                row_num,
+                col_num,
+                url=link,
+                cell_format=format,
+                string=str(value),
+            )
         elif isinstance(value, str) and value.startswith("="):
             format = book.add_format(format)
-            sheet.write_formula(
-                row_num, col_num, cell_format=format, formula=value
-            )
+            sheet.write_formula(row_num, col_num, cell_format=format, formula=value)
         else:
             format = book.add_format(format)
             sheet.write(row_num, col_num, value, format)

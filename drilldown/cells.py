@@ -6,12 +6,12 @@ from .dom import Cell
 
 
 class PageLinkCell(Cell):
-    def __init__(self, text, page_name):
-        self._text = text
+    def __init__(self, value, page_name):
+        self._value = value
         self._page_name = page_name
 
     def _get_string(self):
-        return self._text
+        return str(self._value)
 
     def _get_link(self):
         return self._page_name
