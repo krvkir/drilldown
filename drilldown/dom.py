@@ -7,7 +7,9 @@ Presentation details should be avoided to allow writing
 to different output formats (i.e. a spreadsheet or a website).
 """
 
-from typing import List, Dict
+from typing import Any, Dict, List, Optional, Tuple
+
+import pandas as pd
 
 
 def coalesce(*objs):
@@ -52,11 +54,23 @@ class Navbar:
 
 
 class Chart:
-    def __init__(self, x: str, y: List[str], type=None, subtype=None):
+    def __init__(
+        self,
+        x: str,
+        y: List[str],
+        type: str = None,
+        subtype: str = None,
+        size: Dict[str, Any] = {},
+        x_spec: Dict[str, Any] = {},
+        location: Optional[Dict[str, int]] = {},
+    ):
         self._type = type
         self._subtype = subtype
         self._x = x
         self._y = y
+        self._size = size
+        self._x_spec = x_spec
+        self._location = location
 
     @property
     def x(self):
@@ -83,7 +97,7 @@ class ConditionalFormatting:
 class Table:
     # Dataframe with `columns`, `index`, `values`.
     @property
-    def frame(self):
+    def frame(self) -> pd.DataFrame:
         return self._frame
 
     # Groups are folded using outlines (with total row).
@@ -102,6 +116,18 @@ class Table:
         return self._hidden_columns
 
     @property
+    def hidden_rows(self):
+        return self._hidden_rows
+
+    @property
+    def grouped_columns(self):
+        return self._grouped_columns
+
+    @property
+    def grouped_rows(self):
+        return self._grouped_rows
+
+    @property
     def charts(self):
         return self._charts
 
@@ -115,21 +141,37 @@ class Table:
 
     def __init__(
         self,
-        frame,
+        frame: pd.DataFrame,
         group_level=None,
         column_widths=None,
-        hidden_columns=[],
+        hidden_columns: List[int] = [],
+        hidden_rows: List[int] = [],
+        grouped_columns: List[int] = [],
+        grouped_rows: List[int] = [],
         autofilter=False,
-        charts=[],
-        conditional_formatting=[],
+        charts: List[Chart] = [],
+        conditional_formatting: List[ConditionalFormatting] = [],
+        columns_rename_map: Dict[str, str] = {},
+        index_rename_map: Dict[str, str] = {},
     ):
         self._frame = frame
         self._group_level = group_level
         self._column_widths = column_widths
         self._hidden_columns = hidden_columns
+        self._hidden_rows = hidden_rows
+        self._grouped_columns = grouped_columns
+        self._grouped_rows = grouped_rows
         self._autofilter = autofilter
         self._charts = charts
         self._conditional_formatting = conditional_formatting
+        self._columns_rename_map = columns_rename_map
+        self._index_rename_map = index_rename_map
+
+    def maybe_rename_column(self, cell):
+        return self._columns_rename_map.get(cell, cell)
+
+    def maybe_rename_index(self, cell):
+        return self._index_rename_map.get(cell, cell)
 
 
 class Page:
@@ -153,7 +195,7 @@ class Page:
         return self._navbar
 
     @property
-    def table(self):
+    def table(self) -> Table:
         return self._table
 
     def __repr__(self):
@@ -163,7 +205,7 @@ class Page:
         self,
         name,
         header,
-        table,
+        table: Table,
         navbar=None,
         parent=None,
     ):
