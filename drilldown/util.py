@@ -51,7 +51,18 @@ def _fetch_names(name: Name | NameRange) -> CompoundNameRange:
 def where_col(
     name: Name | NameRange, df: pd.DataFrame, skip_cols: int = 0
 ) -> Optional[SpreadsheetRange1d]:
-    """Find column(s) with the given (scalar or compound) name."""
+    """
+    Find column(s) with the given (scalar or compound) name.
+
+    >>> import pandas as pd
+    >>> index = pd.MultiIndex.from_tuples([('R1', 'r1'), ('R1', 'r2')])
+    >>> columns = pd.MultiIndex.from_tuples([('C1', 'c1'), ('C1', 'c2')])
+    >>> df = pd.DataFrame([[1, 2], [3, 4]], index=index, columns=columns)
+    >>> where_col(('C1', 'c1'), df)
+    (2, 2)
+    >>> where_col([('C1', 'c1'), ('C1', 'c2')], df)
+    (2, 3)
+    """
     skip_cols += df.index.nlevels - 1
     name1, name2 = _fetch_names(name)
     assert df.columns.nlevels >= len(name1)
@@ -67,7 +78,18 @@ def where_col(
 def where_row(
     name: Name | NameRange, df: pd.DataFrame, skip_rows: int = 3
 ) -> Optional[SpreadsheetRange1d]:
-    """Find row(s) with the given (scalar or compound) name."""
+    """
+    Find row(s) with the given (scalar or compound) name.
+
+    >>> import pandas as pd
+    >>> index = pd.MultiIndex.from_tuples([('R1', 'r1'), ('R1', 'r2')])
+    >>> columns = pd.MultiIndex.from_tuples([('C1', 'c1'), ('C1', 'c2')])
+    >>> df = pd.DataFrame([[1, 2], [3, 4]], index=index, columns=columns)
+    >>> where_row(('R1', 'r1'), df, skip_rows=0)
+    (2, 2)
+    >>> where_row([('R1', 'r1'), ('R1', 'r2')], df, skip_rows=0)
+    (2, 3)
+    """
     skip_rows += df.columns.nlevels - 1
     name1, name2 = _fetch_names(name)
     assert df.index.nlevels >= len(name1)
@@ -86,7 +108,22 @@ def where_row(
 def where(
     name: Name | NameRange, df: pd.DataFrame, skip_rows: int = 3, skip_cols: int = 0
 ) -> Optional[SpreadsheetRange2d]:
-    """Return an index of the name in an index of a df"""
+    """
+    Return an index of the name in an index of a df
+
+    >>> import pandas as pd
+    >>> index = pd.MultiIndex.from_tuples([('R1', 'r1'), ('R1', 'r2')])
+    >>> columns = pd.MultiIndex.from_tuples([('C1', 'c1'), ('C1', 'c2')])
+    >>> df = pd.DataFrame([[1, 2], [3, 4]], index=index, columns=columns)
+
+    # Searching for a column
+    >>> where(('C1', 'c1'), df, skip_rows=0, skip_cols=0)
+    (1, 2, 9999, 2)
+
+    # Searching for a row
+    >>> where(('R1', 'r1'), df, skip_rows=0, skip_cols=0)
+    (2, 1, 2, 9999)
+    """
     skip_rows += df.columns.nlevels - 1
     skip_cols += df.index.nlevels - 1
     name1, name2 = _fetch_names(name)
