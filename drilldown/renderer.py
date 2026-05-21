@@ -408,10 +408,10 @@ class Renderer:
 
         # Add conditional formatting
         for i, spec in enumerate(page.table.conditional_formatting):
-            # if "format" in spec.rules and isinstance(spec.rules.format, str):
-            #     spec.rules["format"] = book.add_format(
-            #         self._formats[spec.rules["format"]]
-            #     )
+            if "format" in spec.rules and isinstance(spec.rules["format"], str):
+                spec.rules["format"] = book.add_format(
+                    self._formats[spec.rules["format"]]
+                )
             sheet.conditional_format(*spec.range, spec.rules)
 
     def _write_cell(
